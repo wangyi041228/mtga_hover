@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.5'  # 没弄完
+__version__ = 'v0.1.5'
 __date__ = '2021-06-28'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
@@ -17,7 +17,7 @@ import platform
 import asyncio
 import threading
 
-DEBUGGING = True  # 测试开关
+DEBUGGING = False  # 测试开关
 HOVER_LOG_DIR = os.sep.join(['.', 'log', ''])
 if not os.path.exists(HOVER_LOG_DIR):
     os.mkdir(HOVER_LOG_DIR)
@@ -90,20 +90,19 @@ class MainWindow(Tk):
             self.protocol('WM_DELETE_WINDOW', self.alt_f)
             self['bg'] = 'white'
             self.wm_attributes('-topmost', True)
-            self.treeview_str = StringVar()
-            self.local_list = [0]  # 和全局变量初始值不同，运行一次隐藏掉
+            self.local_list = [(0, '', '')]  # 和全局变量初始值不同，运行一次隐藏掉
 
-            self.Treeview = Treeview(self, select=BROWSE, columns=('A', 'B'))
-            self.Treeview['show'] = 'headings'
-            self.Treeview.column('A', width=30, anchor=W)
-            self.Treeview.column('B', width=10, anchor=W)
-            self.Treeview.heading('A', text='牌名')
-            self.Treeview.heading('B', text='费用')
-            self.Treeview.grid()
-            self.Treeview.pack(side=LEFT, expand=1, fill=BOTH)
-            self.Treeview.bind('<<TreeviewSelect>>', self.treeview_select)
-            self.Scrollbar = Scrollbar(self, command=self.Treeview.yview)
-            self.Treeview.config(yscrollcommand=self.Scrollbar.set)
+            self.Tree = Treeview(self, select=BROWSE, columns=('A', 'B'))
+            self.Tree['show'] = 'headings'
+            self.Tree.column('A', width=30, anchor=W)
+            self.Tree.column('B', width=10, anchor=W)
+            self.Tree.heading('A', text='牌名')
+            self.Tree.heading('B', text='费用')
+            self.Tree.grid()
+            self.Tree.pack(side=LEFT, expand=1, fill=BOTH)
+            self.Tree.bind('<<TreeviewSelect>>', self.treeview_select)
+            self.Scrollbar = Scrollbar(self, command=self.Tree.yview)
+            self.Tree.config(yscrollcommand=self.Scrollbar.set)
             self.Scrollbar.pack(side=RIGHT, fill=Y)
             self.Button = Button(self, text='点击监测轮抽\n不然关掉小窗', width=13, command=self.side_start)
             self.Button.pack()
@@ -139,11 +138,10 @@ class MainWindow(Tk):
 
         def treeview_select(self, event):
             global global_select
-            selection = self.Treeview.selection()
+            selection = self.Tree.selection()
             if selection:
-                item = self.Treeview.item(selection)
-                global_select = item['values'][0]
-                print(global_select)
+                item = self.Tree.item(selection)
+                global_select = int(item['text'])
 
         def get_loop(self, loop):
             self.loop = loop
@@ -164,10 +162,10 @@ class MainWindow(Tk):
                 temp_global_list = global_list
                 if self.local_list != temp_global_list:
                     self.local_list = temp_global_list
-                    self.Treeview.delete(*self.Treeview.get_children())
+                    self.Tree.delete(*self.Tree.get_children())
                     if temp_global_list:
-                        for i, item in enumerate(temp_global_list):
-                            self.Treeview.insert('', END, text=str(i+1), values=item)
+                        for item in temp_global_list:
+                            self.Tree.insert('', END, text=str(item[0]), values=item[1:])
                         self.deiconify()
                     else:
                         self.withdraw()
@@ -266,7 +264,7 @@ class MainWindow(Tk):
             self.Button = Button(self, text='开始监测', width=9, command=self.main_start)
             self.Button.pack()
             self.Button.place(x=70, y=300)
-            self.local_select = ''
+            self.local_select = 0
             self.last_grp_id = 0
             self.now_grp_id = 0
             self.sw = self.SideWindow()
@@ -366,20 +364,7 @@ class MainWindow(Tk):
         if not os.path.exists(self.data_dir):
             print_log(f'【严重】找不到文件卡图文件夹：{self.data_dir}')
             exit()
-        try:
-            cards_list = os.listdir(self.data_dir)
-            for card in cards_list:
-                x, y = card.split('.')
-                if y == 'png':
-                    try:
-                        self.card_title_id_set.add(int(x))
-                    except Exception as e:
-                        print_log((f'【严重】加载简中卡图异常：{e}', e.args))
-            self.card_title_id_set.remove(0)
-            print_log(f'【初始】加载简中卡图：{len(self.card_title_id_set)}')
-        except Exception as e:
-            print_log((f'【严重】加载简中卡图异常：{e}', e.args))
-            exit()
+        self.load_image()
         if not os.path.exists(self.token_dir):
             print_log(f'【严重】找不到文件衍生物卡图文件夹：{self.token_dir}')
         try:
@@ -395,9 +380,25 @@ class MainWindow(Tk):
         except Exception as e:
             print_log((f'【严重】加载简中衍生物卡图异常：{e}', e.args))
 
+    def load_image(self):
+        try:
+            cards_list = os.listdir(self.data_dir)
+            for card in cards_list:
+                x, y = card.split('.')
+                if y == 'png':
+                    try:
+                        self.card_title_id_set.add(int(x))
+                    except Exception as e:
+                        print_log((f'【严重】加载简中卡图异常：{e}', e.args))
+            self.card_title_id_set.remove(0)
+            print_log(f'【初始】加载简中卡图：{len(self.card_title_id_set)}')
+        except Exception as e:
+            print_log((f'【严重】加载简中卡图异常：{e}', e.args))
+            exit()
+
     def hover(self, obj_id):
         if not self.instance_id_2_title_id_in_match:
-            # 对局结束后，字典会清空，不用加载
+            # 对局结束后，字典会清空，不用加载，但是轮抽时需要加载。
             if self.withdraw_mode:
                 self.withdraw()
             else:
@@ -616,13 +617,7 @@ class MainWindow(Tk):
             if draft_status:
                 if draft_status == 'Draft.PickNext':
                     draft_pack = payload.get('DraftPack')
-                    draft_pack = [int(card) for card in draft_pack]
-                    draft_sorted = sorted(draft_pack, key=lambda x: (
-                        self.card_grp_id_2_rarity_map[x],
-                        self.card_grp_id_2_order_map[x],
-                        self.title_id_2_name_map[self.card_grp_id_2_title_id_map[x]]))
-                    global_list = [(self.title_id_2_name_map[self.card_grp_id_2_title_id_map[card]],
-                                    self.card_grp_id_2_cost_map[card]) for card in draft_sorted]
+                    self.pack_2_list(draft_pack)
                 elif draft_status == 'Draft.Complete':
                     global_list = []
                     global_select = 0
@@ -633,13 +628,7 @@ class MainWindow(Tk):
         pack_cards = data.get('PackCards')
         if pack_cards:
             cards = pack_cards.split(',')
-            draft_pack = [int(card) for card in cards]
-            draft_sorted = sorted(draft_pack, key=lambda x: (
-                self.card_grp_id_2_rarity_map[x],
-                self.card_grp_id_2_order_map[x],
-                self.title_id_2_name_map[self.card_grp_id_2_title_id_map[x]]))
-            global_list = [(self.title_id_2_name_map[self.card_grp_id_2_title_id_map[card]],
-                            self.card_grp_id_2_cost_map[card]) for card in draft_sorted]
+            self.pack_2_list(cards)
         # 玩家操作，最好注释掉再导出
         # if DEBUGGING:
         #     perform_action_resp = payload.get('performActionResp')
@@ -671,6 +660,16 @@ class MainWindow(Tk):
                                     self.obj_grp_handler(action, instance_id)
                                 else:
                                     pass  # 存在没id的action咯？
+
+    def pack_2_list(self, draft_pack):
+        global global_list
+        draft_p = [int(card) for card in draft_pack]
+        draft_sorted = sorted(draft_p, key=lambda x: (
+            self.card_grp_id_2_rarity_map[x],
+            self.card_grp_id_2_order_map[x],
+            self.title_id_2_name_map[self.card_grp_id_2_title_id_map[x]]))
+        global_list = [(card, self.title_id_2_name_map[self.card_grp_id_2_title_id_map[card]],
+                        self.card_grp_id_2_cost_map[card]) for card in draft_sorted]
 
     async def log_handler(self):
         while True:
@@ -713,9 +712,14 @@ class MainWindow(Tk):
                                     f.seek(0)
                             except Exception as e:
                                 print_log((f'【严重】获取MTGA日志大小失败：{e}', e.args))
-                            if global_select != self.local_select and global_select in self.name_2_title_id_map:
+                            if global_select != self.local_select:
                                 self.local_select = global_select
-                                self.update_img(self.name_2_title_id_map[global_select])
+                                title_id = self.card_grp_id_2_title_id_map[self.local_select]
+                                double_tile_id = self.double_face_map.get(title_id)
+                                if double_tile_id:
+                                    self.update_img(title_id, double=double_tile_id)
+                                else:
+                                    self.update_img(title_id)
                         if self.now_grp_id != self.last_grp_id:
                             self.last_grp_id = self.now_grp_id
                             self.hover(self.last_grp_id)
