@@ -1,8 +1,8 @@
 #!/usr/bin/python3
-"""Monitor MTGA logs, display Simplified-Chinese images of on-hovered cards in real time."""
+"""Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.4'
-__date__ = '2021-06-26'
+__version__ = 'v0.1.5'  # 没弄完
+__date__ = '2021-06-28'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
@@ -17,18 +17,16 @@ import platform
 import asyncio
 import threading
 
-DEBUGGING = False  # 测试开关
+DEBUGGING = True  # 测试开关
 HOVER_LOG_DIR = os.sep.join(['.', 'log', ''])
 if not os.path.exists(HOVER_LOG_DIR):
     os.mkdir(HOVER_LOG_DIR)
 HOVER_LOG_PATH = f'{HOVER_LOG_DIR}[HOVER_LOG] {str(datetime.now())[2:19].replace(":", "_")}.txt'
-F_T = (
-    (('constructedSeasonOrdinal', 'constructedClass', 'constructedLevel', 'constructedStep', 'constructedMatchesWon',
-      'constructedMatchesLost', 'constructedMatchesDrawn', 'constructedPercentile', 'constructedLeaderboardPlace'),
-     '构组'),
-    (('limitedSeasonOrdinal', 'limitedClass', 'limitedLevel', 'limitedStep', 'limitedMatchesWon',
-      'limitedMatchesLost', 'limitedMatchesDrawn', 'limitedPercentile', 'limitedLeaderboardPlace'), '限制')
-)
+F_T = ((('constructedSeasonOrdinal', 'constructedClass', 'constructedLevel', 'constructedStep', 'constructedMatchesWon',
+         'constructedMatchesLost', 'constructedMatchesDrawn', 'constructedPercentile', 'constructedLeaderboardPlace'),
+        '构组'),
+       (('limitedSeasonOrdinal', 'limitedClass', 'limitedLevel', 'limitedStep', 'limitedMatchesWon',
+         'limitedMatchesLost', 'limitedMatchesDrawn', 'limitedPercentile', 'limitedLeaderboardPlace'), '限制'))
 INVENTORY_ITEMS = ('gems', 'gold', 'sealedTokens', 'draftTokens', 'vaultProgress', 'wcTrackPosition',
                    'wcMythic', 'wcRare', 'wcUncommon', 'wcCommon')  # 'boosters'
 _10_to_TF = {'1': True, '0': False}
@@ -92,16 +90,22 @@ class MainWindow(Tk):
             self.protocol('WM_DELETE_WINDOW', self.alt_f)
             self['bg'] = 'white'
             self.wm_attributes('-topmost', True)
-            self.list_box_str = StringVar()
-            self.local_list = []
+            self.treeview_str = StringVar()
+            self.local_list = [0]  # 和全局变量初始值不同，运行一次隐藏掉
 
-            self.List_box = Listbox(self, listvariable=self.list_box_str)
-            self.List_box.pack(side=LEFT, expand=1, fill=BOTH)
-            self.List_box.bind('<<ListboxSelect>>', self.listbox_click)
-            self.Scrollbar = Scrollbar(self, command=self.List_box.yview)
-            self.List_box.config(yscrollcommand=self.Scrollbar.set)
+            self.Treeview = Treeview(self, select=BROWSE, columns=('A', 'B'))
+            self.Treeview['show'] = 'headings'
+            self.Treeview.column('A', width=30, anchor=W)
+            self.Treeview.column('B', width=10, anchor=W)
+            self.Treeview.heading('A', text='牌名')
+            self.Treeview.heading('B', text='费用')
+            self.Treeview.grid()
+            self.Treeview.pack(side=LEFT, expand=1, fill=BOTH)
+            self.Treeview.bind('<<TreeviewSelect>>', self.treeview_select)
+            self.Scrollbar = Scrollbar(self, command=self.Treeview.yview)
+            self.Treeview.config(yscrollcommand=self.Scrollbar.set)
             self.Scrollbar.pack(side=RIGHT, fill=Y)
-            self.Button = Button(self, text='监测轮抽', width=9, command=self.side_start)
+            self.Button = Button(self, text='点击监测轮抽\n不然关掉小窗', width=13, command=self.side_start)
             self.Button.pack()
             self.Button.place(x=0, y=0)
             self.mainloop()
@@ -133,9 +137,13 @@ class MainWindow(Tk):
             self.save()
             self.withdraw()
 
-        def listbox_click(self, event):
+        def treeview_select(self, event):
             global global_select
-            global_select = self.List_box.get(self.List_box.curselection())
+            selection = self.Treeview.selection()
+            if selection:
+                item = self.Treeview.item(selection)
+                global_select = item['values'][0]
+                print(global_select)
 
         def get_loop(self, loop):
             self.loop = loop
@@ -143,7 +151,6 @@ class MainWindow(Tk):
             self.loop.run_forever()
 
         async def checking(self):
-            global global_list
             while True:
                 await asyncio.sleep(0.01)
                 global side_state
@@ -153,13 +160,14 @@ class MainWindow(Tk):
                     'x': self.winfo_x(),
                     'y': self.winfo_y()
                 }
+                global global_list
                 temp_global_list = global_list
                 if self.local_list != temp_global_list:
                     self.local_list = temp_global_list
-                    self.List_box.delete(0, END)
+                    self.Treeview.delete(*self.Treeview.get_children())
                     if temp_global_list:
-                        for item in temp_global_list:
-                            self.List_box.insert(END, item)
+                        for i, item in enumerate(temp_global_list):
+                            self.Treeview.insert('', END, text=str(i+1), values=item)
                         self.deiconify()
                     else:
                         self.withdraw()
@@ -168,14 +176,13 @@ class MainWindow(Tk):
         try:
             super().__init__()
             self.title(f'MTGA卡图悬浮工具 {__version__} {__date__}')
-            self.protocol('WM_DELETE_WINDOW', self.alt_f4)
             self.loop = None
+            self.protocol('WM_DELETE_WINDOW', self.alt_f)
             self.data_dir = os.sep.join(['.', 'card'])
             self.token_dir = os.sep.join(['.', 'token'])
             self.default_png_path = os.path.join('.', 'card', '0.png')
             self.last_size = os.path.getsize(MTGA_LOG_PATH)
             self.last_pos = 0
-            self.initialized = not DEBUGGING  # True表示还没初始化完毕，没必要更新卡图
             try:
                 with open('mtga_hover.ini', 'r', encoding='utf-8') as f:
                     data = loads(f.read())
@@ -237,46 +244,38 @@ class MainWindow(Tk):
             self.Label_image_0 = Label(self, image=self.image)
             self.Label_image_0.pack()
             self.Label_image_0.place(x=0, y=0)
-
             self.Check1 = Checkbutton(self, text='永远置顶，适合游玩。\n直播或录像建议不置顶，捕捉窗口。',
                                       variable=self.topmost_mode_v, width=30)
             self.Check1.pack()
             self.Check1.place(x=10, y=10)
-
             self.Check2 = Checkbutton(self, text='鼠标进入窗口时高度透明，\n方便查看游戏界面。',
                                       variable=self.alpha_mode_v, width=30)
             self.Check2.pack()
             self.Check2.place(x=10, y=55)
-
             self.Check3 = Checkbutton(self, text='监测对手鼠标悬浮，按需勾选。',
                                       variable=self.monitor_opponent_mode_v, width=30)
             self.Check3.pack()
             self.Check3.place(x=10, y=100)
-
-            t_t = '无悬浮就隐藏窗口，不太建议。'
-            self.Check4 = Checkbutton(self, text=t_t, variable=self.withdraw_mode_v, width=30)
+            self.Check4 = Checkbutton(self, text='无悬浮就隐藏窗口，不太建议。', variable=self.withdraw_mode_v, width=30)
             self.Check4.pack()
             self.Check4.place(x=10, y=127)
-
-            t_t = 'MTGA中右上角【Options】，\n左下角【Account】，\r勾选【Detailed Logs】。' \
-                  '\r\rmtga_hover.ini存配置\r删除ini=恢复默认\r反馈群：780812745'
-            self.Label_text = Label(self, text=t_t)
+            self.Label_text = Label(self, text='MTGA中右上角【Options】，\n左下角【Account】，\r勾选【Detailed Logs】。'
+                                               '\r\rmtga_hover.ini存配置\r删除ini=恢复默认\r反馈群：780812745')
             self.Label_text.pack()
             self.Label_text.place(x=10, y=154)
-
-            self.Button = Button(self, text='开始监测', width=9, command=self.change_form_state)
+            self.Button = Button(self, text='开始监测', width=9, command=self.main_start)
             self.Button.pack()
             self.Button.place(x=70, y=300)
-
             self.local_select = ''
+            self.last_grp_id = 0
+            self.now_grp_id = 0
             self.sw = self.SideWindow()
-
             self.mainloop()
         except Exception as e:
             print_log((f'【严重】类初始化出错：{e}', e.args))
             exit()
 
-    def alt_f4(self):
+    def alt_f(self):
         try:
             state = {
                 'mt': _10_to_TF[self.topmost_mode_v.get()],
@@ -315,9 +314,8 @@ class MainWindow(Tk):
                     data = loads(f.read())
                     for card in data:
                         if card['isToken']:
-                            continue
+                            continue  # 衍生物直接从图片文件夹扫，有文件就是支持，没有就当不存在。
                             # self.token_grp_ids_set.add(card['grpid'])
-                            # 衍生物直接从图片文件夹扫，有文件就是支持，没有就当不存在。
                         linked_type = card['linkedFaceType']
                         grp_id = card['grpid']
                         title_id = card['titleId']
@@ -398,9 +396,6 @@ class MainWindow(Tk):
             print_log((f'【严重】加载简中衍生物卡图异常：{e}', e.args))
 
     def hover(self, obj_id):
-        if self.initialized:
-            # 初始化时，默认不加载图片
-            return
         if not self.instance_id_2_title_id_in_match:
             # 对局结束后，字典会清空，不用加载
             if self.withdraw_mode:
@@ -445,7 +440,8 @@ class MainWindow(Tk):
                     self.deiconify()
             else:
                 if DEBUGGING:
-                    f'【没存】{obj_id} {len(self.instance_id_2_title_id_in_match)} {self.instance_id_2_title_id_in_match.keys()} '
+                    print_log(f'【没存】{obj_id} {len(self.instance_id_2_title_id_in_match)}'
+                              f'{self.instance_id_2_title_id_in_match.keys()}')
                 if self.withdraw_mode:
                     self.withdraw()
 
@@ -554,9 +550,9 @@ class MainWindow(Tk):
         if on_hover:
             object_id = on_hover.get('objectId')
             if object_id:
-                self.hover(object_id)
+                self.now_grp_id = object_id
         else:
-            self.hover(0)
+            self.now_grp_id = 0
 
     def log_data_handler(self, data):
         global global_list
@@ -565,7 +561,7 @@ class MainWindow(Tk):
         if match_game_room_state_event:
             self.instance_id_2_title_id_in_match = {}
             self.instance_id_2_grpid_in_match = {}
-            self.hover(0)
+            self.now_grp_id = 0
             room_info = match_game_room_state_event['gameRoomInfo']
             room_config = room_info['gameRoomConfig']
             match_id = room_config['matchId']
@@ -625,8 +621,8 @@ class MainWindow(Tk):
                         self.card_grp_id_2_rarity_map[x],
                         self.card_grp_id_2_order_map[x],
                         self.title_id_2_name_map[self.card_grp_id_2_title_id_map[x]]))
-                    global_list = [self.title_id_2_name_map[
-                                       self.card_grp_id_2_title_id_map[card]] for card in draft_sorted]
+                    global_list = [(self.title_id_2_name_map[self.card_grp_id_2_title_id_map[card]],
+                                    self.card_grp_id_2_cost_map[card]) for card in draft_sorted]
                 elif draft_status == 'Draft.Complete':
                     global_list = []
                     global_select = 0
@@ -642,14 +638,13 @@ class MainWindow(Tk):
                 self.card_grp_id_2_rarity_map[x],
                 self.card_grp_id_2_order_map[x],
                 self.title_id_2_name_map[self.card_grp_id_2_title_id_map[x]]))
-            global_list = [self.title_id_2_name_map[
-                               self.card_grp_id_2_title_id_map[int(card)]] for card in draft_sorted]
+            global_list = [(self.title_id_2_name_map[self.card_grp_id_2_title_id_map[card]],
+                            self.card_grp_id_2_cost_map[card]) for card in draft_sorted]
         # 玩家操作，最好注释掉再导出
         # if DEBUGGING:
         #     perform_action_resp = payload.get('performActionResp')
         #     if perform_action_resp:
         #         print_log(f'【操作】{dumps(perform_action_resp, separators=(",",":"))}')
-
         gre_to_client_event = data.get('greToClientEvent')
         if gre_to_client_event:
             gre_to_client_messages = gre_to_client_event.get('greToClientMessages')
@@ -679,14 +674,14 @@ class MainWindow(Tk):
 
     async def log_handler(self):
         while True:
-            await asyncio.sleep(0)
+            await asyncio.sleep(0.01)
             try:
                 with open(MTGA_LOG_PATH, 'r', encoding='utf-8') as f:
                     f.seek(self.last_pos)
                     while True:
                         txt = f.read()
                         self.last_pos = f.tell()
-                        if txt:
+                        if txt:  # 有更新就不显示
                             # print_log(f'[{str(datetime.now())[2:17]}] 读取{len(txt)}个字符')  # 测试用
                             json_start_pos = 0
                             brackets_count = 0
@@ -709,8 +704,6 @@ class MainWindow(Tk):
                                             if isinstance(data, dict):
                                                 self.log_data_handler(data)
                         else:
-                            if self.initialized:
-                                self.initialized = False
                             try:
                                 now_size = os.path.getsize(MTGA_LOG_PATH)
                                 if now_size < self.last_size:  # 通常是因为开着插件重启游戏
@@ -723,7 +716,10 @@ class MainWindow(Tk):
                             if global_select != self.local_select and global_select in self.name_2_title_id_map:
                                 self.local_select = global_select
                                 self.update_img(self.name_2_title_id_map[global_select])
-                            await asyncio.sleep(0.01)  # 明显降低CPU使用，略微增加刷新延迟
+                        if self.now_grp_id != self.last_grp_id:
+                            self.last_grp_id = self.now_grp_id
+                            self.hover(self.last_grp_id)
+                        await asyncio.sleep(0.01)
             except Exception as e:
                 print_log((f'【严重】读MTGA日志出错：{e}', e.args))
 
@@ -738,7 +734,7 @@ class MainWindow(Tk):
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
 
-    def change_form_state(self):
+    def main_start(self):
         self.topmost_mode = _10_to_TF[self.topmost_mode_v.get()]
         self.alpha_mode = _10_to_TF[self.alpha_mode_v.get()]
         self.monitor_opponent_mode = _10_to_TF[self.monitor_opponent_mode_v.get()]
