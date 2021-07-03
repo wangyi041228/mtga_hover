@@ -1,6 +1,7 @@
 /build/
 /dist/
 /log/
+/temp/
 /mtga_hover.ini
 /mtga_hover.spec
 /mtga_hover_draft.ini

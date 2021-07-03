@@ -1,21 +1,29 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.5'
-__date__ = '2021-06-28'
+__version__ = 'v0.1.6'
+__date__ = '2021-07-03'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
 
-from tkinter import *
-from tkinter.ttk import *
-from PIL import Image, ImageTk
-from json import loads, dumps
-from datetime import datetime
+import asyncio
 import os
 import platform
-import asyncio
 import threading
+from datetime import datetime
+from json import loads, dumps
+from tkinter import *
+from tkinter.ttk import *
+
+import win32gui
+from PIL import Image, ImageTk, ImageGrab, ImageChops
+from imagehash import dhash, hex_to_hash  # average_hash, phash, whash
+
+# from ctypes import windll, Structure, c_long, byref
+# import numpy
+# import pyautogui
+# from time import time
 
 DEBUGGING = False  # 测试开关
 HOVER_LOG_DIR = os.sep.join(['.', 'log', ''])
@@ -43,6 +51,22 @@ def print_log(contents):
                 print(content, file=f)
         else:
             print(contents, file=f)
+
+
+def screenshot_a():
+    toplist, winlist = [], []
+
+    def enum_cb(hwnd, results):
+        winlist.append((hwnd, win32gui.GetWindowText(hwnd)))
+
+    win32gui.EnumWindows(enum_cb, toplist)
+    mtga_window = [(hwnd, title) for hwnd, title in winlist if 'MTGA' == title]
+    if mtga_window:
+        hwnd = mtga_window[0][0]
+        bbox = win32gui.GetWindowRect(hwnd)
+        # win32gui.SetForegroundWindow(hwnd)
+        img = ImageGrab.grab(bbox, all_screens=True)
+        return img
 
 
 print_log(f'【初始】插件：{__version__} {__date__}')
@@ -184,32 +208,37 @@ class MainWindow(Tk):
             try:
                 with open('mtga_hover.ini', 'r', encoding='utf-8') as f:
                     data = loads(f.read())
-                    if 'mt' in data:
-                        self.topmost_mode = data['mt']
-                    if 'ma' in data:
-                        self.alpha_mode = data['ma']
-                    if 'mo' in data:
-                        self.monitor_opponent_mode = data['mo']
-                    if 'mw' in data:
-                        self.withdraw_mode = data['mw']
-                    if 'w' in data:
-                        self.width = data['w']
-                    if 'h' in data:
-                        self.height = data['h']
-                    if 'x' in data:
-                        self.x = data['x']
-                    if 'y' in data:
-                        self.y = data['y']
             except Exception as e:
                 print_log((f'【严重】读取配置文件出错：{e}', e.args))
-                self.topmost_mode = True  # mt
-                self.alpha_mode = True  # ma
-                self.monitor_opponent_mode = False  # mo
-                self.withdraw_mode = False  # mw
-                self.width = 269  # w
-                self.height = 374  # h
-                self.x = 10  # x
-                self.y = 80  # y
+            self.topmost_mode = True  # mt
+            self.alpha_mode = True  # ma
+            self.monitor_opponent_mode = False  # mo
+            self.withdraw_mode = False  # mw
+            self.collection_mode = False  # mc
+            self.title_2_name_map = {}
+            self.width = 269  # w
+            self.height = 374  # h
+            self.x = 10  # x
+            self.y = 80  # y
+            if isinstance(data, dict):
+                if 'mt' in data:
+                    self.topmost_mode = data['mt']
+                if 'ma' in data:
+                    self.alpha_mode = data['ma']
+                if 'mo' in data:
+                    self.monitor_opponent_mode = data['mo']
+                if 'mw' in data:
+                    self.withdraw_mode = data['mw']
+                if 'mc' in data:
+                    self.collection_mode = data['mc']
+                if 'w' in data:
+                    self.width = data['w']
+                if 'h' in data:
+                    self.height = data['h']
+                if 'x' in data:
+                    self.x = data['x']
+                if 'y' in data:
+                    self.y = data['y']
             try:
                 with open('mtga_hover_draft.ini', 'r', encoding='utf-8') as f:
                     global side_state
@@ -220,6 +249,7 @@ class MainWindow(Tk):
             self.alpha_mode_v = StringVar(value=_TF_to_01[self.alpha_mode])
             self.monitor_opponent_mode_v = StringVar(value=_TF_to_01[self.monitor_opponent_mode])
             self.withdraw_mode_v = StringVar(value=_TF_to_01[self.withdraw_mode])
+            self.collection_mode_v = StringVar(value=_TF_to_01[self.collection_mode])
             self.geometry(f'{str(self.width)}x{str(self.height)}+{str(self.x)}+{str(self.y)}')
             self.single_flag = True
             self['bg'] = 'white'
@@ -230,11 +260,19 @@ class MainWindow(Tk):
             self.double_face_map = {}
             self.single_face_map = {}
             self.title_id_2_name_map = {}
+            self.art_id_2_ti_map = {}
             self.name_2_title_id_map = {}
             self.card_title_id_set = set()
             self.token_grp_ids_set = set()
             self.instance_id_2_title_id_in_match = {}
             self.instance_id_2_grpid_in_match = {}
+            self.out_of_match = True
+            self.hash_list = []
+            self.last_image_0 = None
+            self.last_image_x = 0
+            self.last_image_y = 0
+            self.last_image = None
+            self.index = 0
             self.load_mtga_files()
             self.load_plugin_files()
             with Image.open(self.default_png_path) as im:
@@ -257,13 +295,16 @@ class MainWindow(Tk):
             self.Check4 = Checkbutton(self, text='无悬浮就隐藏窗口，不太建议。', variable=self.withdraw_mode_v, width=30)
             self.Check4.pack()
             self.Check4.place(x=10, y=127)
+            self.Check5 = Checkbutton(self, text='（测试中）支持收藏界面。', variable=self.collection_mode_v, width=30)
+            self.Check5.pack()
+            self.Check5.place(x=10, y=154)
             self.Label_text = Label(self, text='MTGA中右上角【Options】，\n左下角【Account】，\r勾选【Detailed Logs】。'
                                                '\r\rmtga_hover.ini存配置\r删除ini=恢复默认\r反馈群：780812745')
             self.Label_text.pack()
-            self.Label_text.place(x=10, y=154)
+            self.Label_text.place(x=10, y=181)
             self.Button = Button(self, text='开始监测', width=9, command=self.main_start)
             self.Button.pack()
-            self.Button.place(x=70, y=300)
+            self.Button.place(x=70, y=320)
             self.local_select = 0
             self.last_grp_id = 0
             self.now_grp_id = 0
@@ -280,6 +321,7 @@ class MainWindow(Tk):
                 'ma': _10_to_TF[self.alpha_mode_v.get()],
                 'mo': _10_to_TF[self.monitor_opponent_mode_v.get()],
                 'mw': _10_to_TF[self.withdraw_mode_v.get()],
+                'mc': _10_to_TF[self.collection_mode_v.get()],
                 'w': self.winfo_width(),
                 'h': self.winfo_height(),
                 'x': self.winfo_x(),
@@ -573,8 +615,10 @@ class MainWindow(Tk):
                 for player in room_config['reservedPlayers']:
                     players_string += player['playerName'] + ' '
                 print_log(f'【清空】开始：编号 {match_id} 模式 {match_mode} 玩家 {players_string}')
+                self.out_of_match = False
             elif state_type == 'MatchGameRoomStateType_MatchCompleted':
                 print_log(f'【清空】结束：编号 {match_id} 模式 {match_mode}')
+                self.out_of_match = True
 
         # v0.0.0中判断对局开始
         # match_endpoint_host = match_game_room_state_event.get('matchEndpointHost')
@@ -720,6 +764,82 @@ class MainWindow(Tk):
                                     self.update_img(title_id, double=double_tile_id)
                                 else:
                                     self.update_img(title_id)
+                        if self.collection_mode and self.out_of_match:
+                            # v0.1.6 按照1920x1080定的参数
+                            image_new_0 = screenshot_a()
+                            _x, _y = image_new_0.size
+                            image_x = _x // 4  # 1920/4=480
+                            image_y = _y // 4  # 1080/4=270
+                            image_new = image_new_0.resize((image_x, image_y), Image.ANTIALIAS)
+                            image_diff = ImageChops.difference(image_new, self.last_image).point(
+                                lambda n: 255 if n else 0).convert('L')
+                            image_diff_load = image_diff.load()
+                            x = [0] * image_x
+                            y = [0] * image_y
+                            for i in range(image_x):
+                                for j in range(image_y):
+                                    if image_diff_load[i, j] != 0:
+                                        x[i] += 1
+                                        y[j] += 1
+                            xm = [1 if x[i] * 2 > image_y else 0 for i in range(image_x)]
+                            ym = [1 if y[i] * 5 > image_x else 0 for i in range(image_y)]
+                            # print_log(''.join([str(ii) for ii in xm]))
+                            # print_log(''.join([str(ii) for ii in ym]))
+                            try:
+                                x1 = xm.index(1)
+                                xd = xm[x1:].index(0)
+                                y1 = ym.index(1)
+                                yd = ym[y1:].index(0)
+                                if xd * 7 > image_x and abs(yd / xd - 1.4) < 0.1:
+                                    x1 = x1 * 4 - 5
+                                    xd = xd * 4 + 10
+                                    x2 = x1 + xd
+                                    y1 = y1 * 4 - 5
+                                    y2 = int(xd * 1.4) + y1 + 10
+                                    box = (x1, y1, x2, y2)
+                                    image_new_0_crop = image_new_0.crop(box)
+                                    image_diff_0 = ImageChops.difference(image_new_0_crop,
+                                                                         self.last_image_0.crop(box)).point(
+                                        lambda n: 255 if n else 0).convert('L')
+                                    diff_x, diff_y = image_diff_0.size
+                                    image_diff_0_load = image_diff_0.load()
+                                    x = [0] * diff_x
+                                    y = [0] * diff_y
+                                    for i in range(diff_x):
+                                        for j in range(diff_y):
+                                            if image_diff_0_load[i, j] != 0:
+                                                x[i] += 1
+                                                y[j] += 1
+                                    xm = [1 if x[i] > 520 else 0 for i in range(diff_x)]
+                                    ym = [1 if y[i] > 330 else 0 for i in range(diff_y)]
+                                    x1 = xm.index(1)
+                                    x2 = diff_x - xm[::-1].index(1)
+                                    y1 = ym.index(1)
+                                    y2 = diff_y - ym[::-1].index(1)
+                                    image_crop = image_new_0_crop.crop((x1, y1, x2, y2))
+                                    art_crop = image_crop.resize((150, 210), Image.ANTIALIAS).crop((11, 24, 139, 117))
+                                    art_hash = dhash(art_crop)
+                                    hash_compare = [(item[0], art_hash - item[1]) for item in self.hash_list]
+                                    hash_min = min(hash_compare, key=lambda xx: xx[1])
+                                    title_id = hash_min[0]
+                                    if DEBUGGING:
+                                        image_crop.save('./temp/' + str(self.index) + '.png')
+                                        art_crop.save('./temp/' + str(self.index) + 'a.png')
+                                        name = self.title_2_name_map.get(title_id)
+                                        print(self.index, title_id, name, hash_min[1])
+                                    self.index += 1
+                                    if hash_min[1] < 12:
+                                        double_tile_id = self.double_face_map.get(title_id)
+                                        if double_tile_id:
+                                            self.update_img(title_id, double=double_tile_id)
+                                        else:
+                                            self.update_img(title_id)
+                            except ValueError:
+                                pass
+                            except Exception as e:
+                                print_log((f'【严重】图片分析出错：{e}', e.args))
+                            self.last_image_0 = image_new_0
+                            self.last_image = image_new
                         if self.now_grp_id != self.last_grp_id:
                             self.last_grp_id = self.now_grp_id
                             self.hover(self.last_grp_id)
@@ -743,16 +863,30 @@ class MainWindow(Tk):
         self.alpha_mode = _10_to_TF[self.alpha_mode_v.get()]
         self.monitor_opponent_mode = _10_to_TF[self.monitor_opponent_mode_v.get()]
         self.withdraw_mode = _10_to_TF[self.withdraw_mode_v.get()]
+        self.collection_mode = _10_to_TF[self.collection_mode_v.get()]
         if self.topmost_mode:
             self.wm_attributes('-topmost', True)
         if self.alpha_mode:
             self.bind('<Enter>', self.alpha_min)
             self.bind('<Leave>', self.alpha_max)
+        if self.collection_mode:
+            try:
+                with open('hash_data.json', 'r', encoding='utf-8') as f:
+                    _hash_list = loads(f.read())
+                    self.hash_list = [[item[0], hex_to_hash(item[1])] for item in _hash_list]
+            except Exception as e:
+                print_log((f'【严重】加载哈希数组出错：{e}', e.args))
+            self.last_image_0 = screenshot_a()
+            _x, _y = self.last_image_0.size
+            self.last_image_x = _x // 4
+            self.last_image_y = _y // 4
+            self.last_image = self.last_image_0.resize((self.last_image_x, self.last_image_y), Image.ANTIALIAS)
         self.update_img()
         self.Check1.destroy()
         self.Check2.destroy()
         self.Check3.destroy()
         self.Check4.destroy()
+        self.Check5.destroy()
         self.Button.destroy()
         self.Label_text.destroy()
         coroutine1 = self.log_handler()
