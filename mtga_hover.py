@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.6'
-__date__ = '2021-07-03'
+__version__ = 'v0.1.7'
+__date__ = '2021-07-08'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
@@ -18,14 +18,14 @@ from tkinter.ttk import *
 
 import win32gui
 from PIL import Image, ImageTk, ImageGrab, ImageChops
-from imagehash import dhash, hex_to_hash  # average_hash, phash, whash
+from imagehash import average_hash, dhash, hex_to_hash  # phash, whash
 
 # from ctypes import windll, Structure, c_long, byref
 # import numpy
 # import pyautogui
 # from time import time
 
-DEBUGGING = False  # 测试开关
+DEBUGGING = True  # 测试开关
 HOVER_LOG_DIR = os.sep.join(['.', 'log', ''])
 if not os.path.exists(HOVER_LOG_DIR):
     os.mkdir(HOVER_LOG_DIR)
@@ -205,11 +205,13 @@ class MainWindow(Tk):
             self.default_png_path = os.path.join('.', 'card', '0.png')
             self.last_size = os.path.getsize(MTGA_LOG_PATH)
             self.last_pos = 0
+
             try:
                 with open('mtga_hover.ini', 'r', encoding='utf-8') as f:
                     data = loads(f.read())
             except Exception as e:
                 print_log((f'【严重】读取配置文件出错：{e}', e.args))
+                data = {}
             self.topmost_mode = True  # mt
             self.alpha_mode = True  # ma
             self.monitor_opponent_mode = False  # mo
@@ -267,7 +269,8 @@ class MainWindow(Tk):
             self.instance_id_2_title_id_in_match = {}
             self.instance_id_2_grpid_in_match = {}
             self.out_of_match = True
-            self.hash_list = []
+            self.ahash_list = []
+            self.dhash_list = []
             self.last_image_0 = None
             self.last_image_x = 0
             self.last_image_y = 0
@@ -767,79 +770,108 @@ class MainWindow(Tk):
                         if self.collection_mode and self.out_of_match:
                             # v0.1.6 按照1920x1080定的参数
                             image_new_0 = screenshot_a()
-                            _x, _y = image_new_0.size
-                            image_x = _x // 4  # 1920/4=480
-                            image_y = _y // 4  # 1080/4=270
-                            image_new = image_new_0.resize((image_x, image_y), Image.ANTIALIAS)
-                            image_diff = ImageChops.difference(image_new, self.last_image).point(
-                                lambda n: 255 if n else 0).convert('L')
-                            image_diff_load = image_diff.load()
-                            x = [0] * image_x
-                            y = [0] * image_y
-                            for i in range(image_x):
-                                for j in range(image_y):
-                                    if image_diff_load[i, j] != 0:
-                                        x[i] += 1
-                                        y[j] += 1
-                            xm = [1 if x[i] * 2 > image_y else 0 for i in range(image_x)]
-                            ym = [1 if y[i] * 5 > image_x else 0 for i in range(image_y)]
-                            # print_log(''.join([str(ii) for ii in xm]))
-                            # print_log(''.join([str(ii) for ii in ym]))
-                            try:
-                                x1 = xm.index(1)
-                                xd = xm[x1:].index(0)
-                                y1 = ym.index(1)
-                                yd = ym[y1:].index(0)
-                                if xd * 7 > image_x and abs(yd / xd - 1.4) < 0.1:
-                                    x1 = x1 * 4 - 5
-                                    xd = xd * 4 + 10
-                                    x2 = x1 + xd
-                                    y1 = y1 * 4 - 5
-                                    y2 = int(xd * 1.4) + y1 + 10
-                                    box = (x1, y1, x2, y2)
-                                    image_new_0_crop = image_new_0.crop(box)
-                                    image_diff_0 = ImageChops.difference(image_new_0_crop,
-                                                                         self.last_image_0.crop(box)).point(
-                                        lambda n: 255 if n else 0).convert('L')
-                                    diff_x, diff_y = image_diff_0.size
-                                    image_diff_0_load = image_diff_0.load()
-                                    x = [0] * diff_x
-                                    y = [0] * diff_y
-                                    for i in range(diff_x):
-                                        for j in range(diff_y):
-                                            if image_diff_0_load[i, j] != 0:
+                            if image_new_0 is None:
+                                self.last_image_x = 0
+                                self.last_image_y = 0
+                                self.last_image = None
+                                self.last_image_0 = None
+                            else:
+                                _x, _y = image_new_0.size
+                                image_x = _x // 4  # 1920/4=480
+                                image_y = _y // 4  # 1080/4=270
+                                image_new = image_new_0.resize((image_x, image_y), Image.ANTIALIAS)
+                                image_diff = ImageChops.difference(image_new, self.last_image).point(
+                                    lambda n: 255 if n else 0).convert('L')
+                                if image_diff is None:
+                                    pass
+                                else:
+                                    image_diff_load = image_diff.load()
+                                    x = [0] * image_x
+                                    y = [0] * image_y
+                                    for i in range(image_x):
+                                        for j in range(image_y):
+                                            if image_diff_load[i, j] != 0:
                                                 x[i] += 1
                                                 y[j] += 1
-                                    xm = [1 if x[i] > 520 else 0 for i in range(diff_x)]
-                                    ym = [1 if y[i] > 330 else 0 for i in range(diff_y)]
-                                    x1 = xm.index(1)
-                                    x2 = diff_x - xm[::-1].index(1)
-                                    y1 = ym.index(1)
-                                    y2 = diff_y - ym[::-1].index(1)
-                                    image_crop = image_new_0_crop.crop((x1, y1, x2, y2))
-                                    art_crop = image_crop.resize((150, 210), Image.ANTIALIAS).crop((11, 24, 139, 117))
-                                    art_hash = dhash(art_crop)
-                                    hash_compare = [(item[0], art_hash - item[1]) for item in self.hash_list]
-                                    hash_min = min(hash_compare, key=lambda xx: xx[1])
-                                    title_id = hash_min[0]
-                                    if DEBUGGING:
-                                        image_crop.save('./temp/' + str(self.index) + '.png')
-                                        art_crop.save('./temp/' + str(self.index) + 'a.png')
-                                        name = self.title_2_name_map.get(title_id)
-                                        print(self.index, title_id, name, hash_min[1])
-                                    self.index += 1
-                                    if hash_min[1] < 12:
-                                        double_tile_id = self.double_face_map.get(title_id)
-                                        if double_tile_id:
-                                            self.update_img(title_id, double=double_tile_id)
-                                        else:
-                                            self.update_img(title_id)
-                            except ValueError:
-                                pass
-                            except Exception as e:
-                                print_log((f'【严重】图片分析出错：{e}', e.args))
-                            self.last_image_0 = image_new_0
-                            self.last_image = image_new
+                                    xm = [1 if x[i] * 2 > image_y else 0 for i in range(image_x)]
+                                    ym = [1 if y[i] * 5 > image_x else 0 for i in range(image_y)]
+                                    # print_log(''.join([str(ii) for ii in xm]))
+                                    # print_log(''.join([str(ii) for ii in ym]))
+                                    try:
+                                        x1 = xm.index(1)
+                                        xd = xm[x1:].index(0)
+                                        y1 = ym.index(1)
+                                        yd = ym[y1:].index(0)
+                                        if xd * 7 > image_x and abs(yd / xd - 1.4) < 0.1:
+                                            x1 = x1 * 4 - 5
+                                            xd = xd * 4 + 10
+                                            x2 = x1 + xd
+                                            y1 = y1 * 4 - 5
+                                            y2 = int(xd * 1.4) + y1 + 10
+                                            box = (x1, y1, x2, y2)
+                                            image_new_0_crop = image_new_0.crop(box)
+                                            image_diff_0 = ImageChops.difference(image_new_0_crop,
+                                                                                 self.last_image_0.crop(box)).point(
+                                                lambda n: 255 if n else 0).convert('L')
+                                            diff_x, diff_y = image_diff_0.size
+                                            if diff_x > 0 and diff_y > 0:
+                                                image_diff_0_load = image_diff_0.load()
+                                                x = [0] * diff_x
+                                                y = [0] * diff_y
+                                                for i in range(diff_x):
+                                                    for j in range(diff_y):
+                                                        if image_diff_0_load[i, j] != 0:
+                                                            x[i] += 1
+                                                            y[j] += 1
+                                                xm = [1 if x[i] > 520 else 0 for i in range(diff_x)]
+                                                ym = [1 if y[i] > 330 else 0 for i in range(diff_y)]
+                                                x1 = xm.index(1)
+                                                x2 = diff_x - xm[::-1].index(1)
+                                                y1 = ym.index(1)
+                                                y2 = diff_y - ym[::-1].index(1)
+                                                image_crop = image_new_0_crop.crop((x1, y1, x2, y2))
+                                                art_crop = image_crop.resize((150, 210), Image.ANTIALIAS).crop((11, 24, 139, 117))
+                                                art_hash = dhash(art_crop, 16)
+                                                hash_compare = [(item[0], art_hash - item[1]) for item in self.dhash_list]
+                                                hash_min = min(hash_compare, key=lambda xx: xx[1])
+                                                title_id = hash_min[0]
+                                                if DEBUGGING:
+                                                    image_crop.save('./temp/' + str(self.index) + '.png')
+                                                    art_crop.save('./temp/' + str(self.index) + 'a.png')
+                                                    name = self.title_2_name_map.get(title_id)
+                                                    print('[dhash]', self.index, title_id, name, hash_min[1])
+                                                self.index += 1
+                                                if hash_min[1] < 80:
+                                                    double_tile_id = self.double_face_map.get(title_id)
+                                                    if double_tile_id:
+                                                        self.update_img(title_id, double=double_tile_id)
+                                                    else:
+                                                        self.update_img(title_id)
+                                                elif hash_min[1] < 90:
+                                                    art_hash = average_hash(art_crop, 16)
+                                                    hash_compare = [(item[0], art_hash - item[1]) for item in self.ahash_list]
+                                                    hash_min = min(hash_compare, key=lambda xx: xx[1])
+                                                    title_id = hash_min[0]
+                                                    if DEBUGGING:
+                                                        image_crop.save('./temp/' + str(self.index) + '.png')
+                                                        art_crop.save('./temp/' + str(self.index) + 'a.png')
+                                                        name = self.title_2_name_map.get(title_id)
+                                                        print('[ahash]', self.index, title_id, name, hash_min[1])
+                                                    self.index += 1
+                                                    if hash_min[1] < 40:
+                                                        double_tile_id = self.double_face_map.get(title_id)
+                                                        if double_tile_id:
+                                                            self.update_img(title_id, double=double_tile_id)
+                                                        else:
+                                                            self.update_img(title_id)
+                                    except ValueError:
+                                        pass
+                                    except Exception as e:
+                                        print_log((f'【严重】图片分析出错：{e}', e.args))
+                                self.last_image_x = image_x
+                                self.last_image_y = image_y
+                                self.last_image_0 = image_new_0
+                                self.last_image = image_new
                         if self.now_grp_id != self.last_grp_id:
                             self.last_grp_id = self.now_grp_id
                             self.hover(self.last_grp_id)
@@ -871,16 +903,25 @@ class MainWindow(Tk):
             self.bind('<Leave>', self.alpha_max)
         if self.collection_mode:
             try:
-                with open('hash_data.json', 'r', encoding='utf-8') as f:
+                with open('ahash_data.json', 'r', encoding='utf-8') as f:
                     _hash_list = loads(f.read())
-                    self.hash_list = [[item[0], hex_to_hash(item[1])] for item in _hash_list]
+                    self.ahash_list = [[item[0], hex_to_hash(item[1])] for item in _hash_list]
+                with open('dhash_data.json', 'r', encoding='utf-8') as f:
+                    _hash_list = loads(f.read())
+                    self.dhash_list = [[item[0], hex_to_hash(item[1])] for item in _hash_list]
             except Exception as e:
                 print_log((f'【严重】加载哈希数组出错：{e}', e.args))
+                self.collection_mode = False
             self.last_image_0 = screenshot_a()
-            _x, _y = self.last_image_0.size
-            self.last_image_x = _x // 4
-            self.last_image_y = _y // 4
-            self.last_image = self.last_image_0.resize((self.last_image_x, self.last_image_y), Image.ANTIALIAS)
+            if self.last_image_0 is None:
+                self.last_image_x = 0
+                self.last_image_y = 0
+                self.last_image = None
+            else:
+                _x, _y = self.last_image_0.size
+                self.last_image_x = _x // 4
+                self.last_image_y = _y // 4
+                self.last_image = self.last_image_0.resize((self.last_image_x, self.last_image_y), Image.ANTIALIAS)
         self.update_img()
         self.Check1.destroy()
         self.Check2.destroy()
