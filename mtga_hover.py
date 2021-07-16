@@ -280,7 +280,7 @@ class MainWindow(Tk):
             self.token_grp_ids_set = set()
             self.instance_id_2_title_id_in_match = {}
             self.instance_id_2_grpid_in_match = {}
-            self.out_of_match = False  # 日志暂不提供，先默认False吧
+            self.out_of_match = True
             self.ahash_list = []
             self.dhash_list = []
             self.last_image_0 = None
