@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.8'
-__date__ = '2021-07-10'
+__version__ = 'v0.1.9'
+__date__ = '2021-07-16'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
@@ -141,7 +141,7 @@ class MainWindow(Tk):
             self.Scrollbar = Scrollbar(self, command=self.Tree.yview)
             self.Tree.config(yscrollcommand=self.Scrollbar.set)
             self.Scrollbar.pack(side=RIGHT, fill=Y)
-            self.Button = Button(self, text='点击监测轮抽\n不然关掉小窗', width=13, command=self.side_start)
+            self.Button = Button(self, text='点击监测轮抽\n否则关闭小窗', width=13, command=self.side_start)
             self.Button.pack()
             self.Button.place(x=0, y=0)
             self.mainloop()
@@ -303,14 +303,14 @@ class MainWindow(Tk):
                                       variable=self.alpha_mode_v, width=30)
             self.Check2.pack()
             self.Check2.place(x=10, y=55)
-            self.Check3 = Checkbutton(self, text='（无效）监测对手鼠标悬浮，按需勾选。',
+            self.Check3 = Checkbutton(self, text='监测对手鼠标悬浮，按需勾选。',
                                       variable=self.monitor_opponent_mode_v, width=30)
             self.Check3.pack()
             self.Check3.place(x=10, y=100)
             self.Check4 = Checkbutton(self, text='无悬浮就隐藏窗口，不太建议。', variable=self.withdraw_mode_v, width=30)
             self.Check4.pack()
             self.Check4.place(x=10, y=127)
-            self.Check5 = Checkbutton(self, text='全局模式。目前版本需要开启，\n不然只支持轮抽中。', variable=self.collection_mode_v, width=30)
+            self.Check5 = Checkbutton(self, text='全局模式，吃CPU。\n非必需，支持收藏和组牌。', variable=self.collection_mode_v, width=30)
             self.Check5.pack()
             self.Check5.place(x=10, y=155)
             self.Label_text = Label(self, text='MTGA中右上角【Options】，\n左下角【Account】，\r勾选【Detailed Logs】。'
@@ -353,9 +353,13 @@ class MainWindow(Tk):
     def load_mtga_files(self):
         if DEBUGGING:
             mtga_files_dir = r'C:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Data\\'
-        else:
+        elif os.path.exists('MTGA.exe'):
             mtga_files_dir = os.sep.join(['.', 'MTGA_Data', 'Downloads', 'Data'])  # 不同系统环境的路径可能有区别
-        if not os.path.exists(mtga_files_dir):
+        elif os.path.exists('MTGALauncher.exe'):
+            mtga_files_dir = os.sep.join([os.path.abspath('.')[:-12], 'MTGA_Data', 'Downloads', 'Data'])
+        else:
+            mtga_files_dir = ''
+        if mtga_files_dir and not os.path.exists(mtga_files_dir):
             print_log(f'【严重】游戏文件路径不存在：{mtga_files_dir}')
             print_log(f'当前路径：{os.path.abspath(".")}')
             print_log(f'发现文件（夹）：{os.listdir(".")}')
@@ -724,8 +728,6 @@ class MainWindow(Tk):
         if connect_resp:
             self.out_of_match = False
 
-
-
     def pack_2_list(self, draft_pack):
         global global_list
         draft_p = [int(card) for card in draft_pack]
@@ -785,7 +787,7 @@ class MainWindow(Tk):
                                     self.update_img(title_id, double=double_tile_id)
                                 else:
                                     self.update_img(title_id)
-                        if self.collection_mode:  # and self.out_of_match v0.1.8开放对局内识别
+                        if self.collection_mode and self.out_of_match:  # v0.1.8开放对局内识别 v0.1.9关闭
                             # v0.1.6 按照1920x1080定的参数
                             image_new_0 = screenshot_a()
                             if image_new_0 is None:
