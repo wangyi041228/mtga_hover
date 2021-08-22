@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.9'
-__date__ = '2021-07-16'
+__version__ = 'v0.1.10'
+__date__ = '2021-08-22'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
@@ -11,6 +11,8 @@ import asyncio
 import os
 import platform
 import threading
+import winreg
+from ctypes import windll, Structure, c_long, byref
 from datetime import datetime
 from json import loads, dumps
 from tkinter import *
@@ -19,7 +21,6 @@ from tkinter.ttk import *
 import win32gui
 from PIL import Image, ImageTk, ImageGrab, ImageChops
 from imagehash import average_hash, dhash, hex_to_hash  # phash, whash
-from ctypes import windll, Structure, c_long, byref
 
 # import numpy
 # import pyautogui
@@ -56,10 +57,10 @@ def print_log(contents):
 
 def screenshot_a():
     toplist, winlist = [], []
-
+    
     def enum_cb(hwnd, results):
         winlist.append((hwnd, win32gui.GetWindowText(hwnd)))
-
+    
     win32gui.EnumWindows(enum_cb, toplist)
     mtga_window = [(hwnd, title) for hwnd, title in winlist if 'MTGA' == title]
     if mtga_window:
@@ -90,14 +91,14 @@ try:
     APPDATA_DIR = os.getenv("APPDATA")
 except Exception as _e:
     print_log((f'【严重】获取APPDATA失败：{_e}', _e.args))
-    exit()
+    sys.exit()
 if len(APPDATA_DIR) < 8 or APPDATA_DIR[-7:] != 'Roaming':
     print_log(f'【严重】获取APPDATA：{APPDATA_DIR}，不知道MTGA日志路径')
-    exit()
+    sys.exit()
 MTGA_LOG_PATH = os.sep.join([APPDATA_DIR[:-8], 'LocalLow', 'Wizards Of The Coast', 'MTGA', 'Player.log'])
 if not os.path.exists(MTGA_LOG_PATH):
     print_log(f'【严重】拼接游戏MTGA日志路径：{MTGA_LOG_PATH}，文件不存在。打开MTGA再试一次。')
-    exit()  # 可能没开过游戏，可以尝试建文件夹，建空文件
+    sys.exit()
 
 
 class MainWindow(Tk):
@@ -128,7 +129,7 @@ class MainWindow(Tk):
             self['bg'] = 'white'
             self.wm_attributes('-topmost', True)
             self.local_list = [(0, '', '')]  # 和全局变量初始值不同，运行一次隐藏掉
-
+            
             self.Tree = Treeview(self, select=BROWSE, columns=('A', 'B'))
             self.Tree['show'] = 'headings'
             self.Tree.column('A', width=30, anchor=W)
@@ -145,7 +146,7 @@ class MainWindow(Tk):
             self.Button.pack()
             self.Button.place(x=0, y=0)
             self.mainloop()
-
+        
         def side_start(self):
             self.Button.destroy()
             coroutine1 = self.checking()
@@ -154,7 +155,7 @@ class MainWindow(Tk):
             t.daemon = True
             t.start()
             asyncio.run_coroutine_threadsafe(coroutine1, new_loop)
-
+        
         def save(self):  # 手动关闭小窗口，或者开启检测轮抽后关闭主窗口才会保存信息，不点小窗口按钮直接关闭主窗口不会保存
             try:
                 global side_window_params
@@ -168,23 +169,23 @@ class MainWindow(Tk):
                     print(dumps(side_window_params, separators=(',', ':')), file=f)
             except Exception as e:
                 print_log((f'【严重】存储子窗口配置出错：{e}', e.args))
-
+        
         def alt_f(self):
             self.save()
             self.withdraw()
-
+        
         def treeview_select(self, event):
             global global_select
             selection = self.Tree.selection()
             if selection:
                 item = self.Tree.item(selection)
                 global_select = int(item['text'])
-
+        
         def get_loop(self, loop):
             self.loop = loop
             asyncio.set_event_loop(self.loop)
             self.loop.run_forever()
-
+        
         async def checking(self):
             while True:
                 await asyncio.sleep(0.005)
@@ -206,7 +207,7 @@ class MainWindow(Tk):
                         self.deiconify()  # 启动时读取之前的轮抽记录会闪若干次= =
                     else:
                         self.withdraw()
-
+    
     def __init__(self):
         try:
             super().__init__()
@@ -327,8 +328,8 @@ class MainWindow(Tk):
             self.mainloop()
         except Exception as e:
             print_log((f'【严重】类初始化出错：{e}', e.args))
-            exit()
-
+            sys.exit()
+    
     def alt_f(self):
         try:
             main_window_params = {
@@ -349,7 +350,7 @@ class MainWindow(Tk):
         except Exception as e:
             print_log((f'【严重】存储配置出错：{e}', e.args))
         self.destroy()
-
+    
     def load_mtga_files(self):
         if DEBUGGING:
             mtga_files_dir = r'C:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Data\\'
@@ -358,12 +359,17 @@ class MainWindow(Tk):
         elif os.path.exists('MTGALauncher.exe'):
             mtga_files_dir = os.sep.join([os.path.abspath('.')[:-12], 'MTGA_Data', 'Downloads', 'Data'])
         else:
-            mtga_files_dir = ''
+            loc = r'SOFTWARE\Wizards of the Coast\MTGArena'
+            # handle = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, loc, 0, (winreg.KEY_WOW64_64KEY + winreg.KEY_READ))
+            handle = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, loc)
+            mtga_files_dir, _type = winreg.QueryValueEx(handle, 'Path')
+            winreg.CloseKey(handle)
+            mtga_files_dir += r'MTGA_Data\Downloads\Data\\'
         if mtga_files_dir and not os.path.exists(mtga_files_dir):
             print_log(f'【严重】游戏文件路径不存在：{mtga_files_dir}')
             print_log(f'当前路径：{os.path.abspath(".")}')
             print_log(f'发现文件（夹）：{os.listdir(".")}')
-            exit()
+            sys.exit()
         files = os.listdir(mtga_files_dir)
         card_title_ids_set = set()
         # 从Manifest读也许更好，但不一定
@@ -372,38 +378,64 @@ class MainWindow(Tk):
                 with open(os.path.join(mtga_files_dir, file), 'r', encoding='utf-8') as f:
                     data = loads(f.read())
                     for card in data:
-                        if card['isToken']:
-                            continue  # 衍生物直接从图片文件夹扫，有文件就是支持，没有就当不存在。
-                            # self.token_grp_ids_set.add(card['grpid'])
-                        linked_type = card['linkedFaceType']
                         grp_id = card['grpid']
                         title_id = card['titleId']
-                        rarity = card['rarity']  # 5 4 3 2 1 = M R U C L 后面取负简化排序计算
-                        if 5 in card['types']:  # 快速规则：0 无 1-5 白-绿 6 多 7 神器 8 地
+                        if 'isToken' in card:  # and card['isToken']  # 为了同时兼容J21预更新前后的数据
+                            if card['isToken']:  # 衍生物直接从图片文件夹扫，有文件就是支持，没有就当不存在。
+                                continue
+                        # self.token_grp_ids_set.add(card['grpid'])
+                        if 'linkedFaceType' in card:
+                            linked_type = card['linkedFaceType']
+                        else:
+                            linked_type = 0
+
+                        if 'linkedFaces' in card:
+                            linked_faces = card['linkedFaces']
+                        else:
+                            linked_faces = []
+
+                        if 'rarity' in card:
+                            rarity = card['rarity']  # 5 4 3 2 1 = M R U C L 后面取负简化排序计算
+                        else:
+                            rarity = 0  # ???
+
+                        if 'types' in card:
+                            types = card['types']
+                        else:
+                            types = []
+
+                        if 5 in types:  # 快速规则：0 无 1-5 白-绿 6 多 7 神器 8 地
                             order = 8  # MTGA没有生物地
                         else:
-                            colors = card['colors']
+                            if 'colors' in card:
+                                colors = card['colors']
+                            else:
+                                colors = []
                             if len(colors) == 1:
                                 order = colors[0]
                             elif len(colors) == 0:
-                                if 1 in card['types']:
+                                if 1 in types:
                                     order = 7
                                 else:
                                     order = 0
                             else:
                                 order = 6
+                        if 'castingcost' in card:
+                            castingcost = card['castingcost']
+                        else:
+                            castingcost = ''
                         self.card_grp_id_2_title_id_map[grp_id] = title_id
                         self.card_grp_id_2_rarity_map[grp_id] = - rarity
                         self.card_grp_id_2_order_map[grp_id] = order
-                        self.card_grp_id_2_cost_map[grp_id] = card['castingcost'].replace('o', '')
+                        self.card_grp_id_2_cost_map[grp_id] = castingcost.replace('o', '')
                         card_title_ids_set.add(title_id)
                         if linked_type == 0 or linked_type == 5 or linked_type == 7:  # in (0, 5, 7) 运行效率？
                             continue
                         if linked_type == 6 or linked_type == 8:
-                            for face in card['linkedFaces']:
+                            for face in linked_faces:
                                 self.single_face_map[face] = title_id
                         else:
-                            for face in card['linkedFaces']:
+                            for face in linked_faces:
                                 other_title_id = self.card_grp_id_2_title_id_map.get(face)
                                 if other_title_id:
                                     self.double_face_map[title_id] = other_title_id
@@ -420,11 +452,11 @@ class MainWindow(Tk):
                             self.title_id_2_name_map[key['id']] = key['text']
                             self.name_2_title_id_map[key['text']] = key['id']
                 break
-
+    
     def load_plugin_files(self):
         if not os.path.exists(self.data_dir):
             print_log(f'【严重】找不到文件卡图文件夹：{self.data_dir}')
-            exit()
+            sys.exit()
         self.load_image()
         if not os.path.exists(self.token_dir):
             print_log(f'【严重】找不到文件衍生物卡图文件夹：{self.token_dir}')
@@ -440,7 +472,7 @@ class MainWindow(Tk):
             print_log(f'【初始】加载简中衍生物卡图：{len(self.token_grp_ids_set)}')
         except Exception as e:
             print_log((f'【严重】加载简中衍生物卡图异常：{e}', e.args))
-
+    
     def load_image(self):
         try:
             cards_list = os.listdir(self.data_dir)
@@ -455,8 +487,8 @@ class MainWindow(Tk):
             print_log(f'【初始】加载简中卡图：{len(self.card_title_id_set)}')
         except Exception as e:
             print_log((f'【严重】加载简中卡图异常：{e}', e.args))
-            exit()
-
+            sys.exit()
+    
     def hover(self, obj_id):
         if not self.instance_id_2_title_id_in_match:
             # 对局结束后，字典会清空，不用加载，但是轮抽时需要加载。
@@ -477,7 +509,7 @@ class MainWindow(Tk):
                 single_title_id = self.single_face_map.get(title_id)
                 if single_title_id:
                     title_id = single_title_id
-
+                
                 if title_id in self.card_title_id_set:
                     double_tile_id = self.double_face_map.get(title_id)
                     if double_tile_id:
@@ -506,7 +538,7 @@ class MainWindow(Tk):
                               f'{self.instance_id_2_title_id_in_match.keys()}')
                 if self.withdraw_mode:
                     self.withdraw()
-
+    
     def update_img(self, g_id=0, token=False, double=0):
         try:
             if self.single_flag:
@@ -545,7 +577,7 @@ class MainWindow(Tk):
                 self.geometry(f'{str(w_n + 4)}x{str(h_n + 4)}')
         except Exception as e:
             print_log((f'【严重】更新卡图失败：{e}', e.args))
-
+    
     def instance_change_name(self, a, b, c):
         a_name = self.title_id_2_name_map.get(a)
         b_name = self.title_id_2_name_map.get(b)
@@ -560,7 +592,7 @@ class MainWindow(Tk):
         else:
             b_name = ''
         print_log(f'【改名】物件({c}) 从 {a}{a_name} 变成 {b}{b_name}')
-
+    
     def obj_grp_handler(self, obj, instance_id):
         obj_type = obj.get('type')
         if obj_type == 'GameObjectType_Ability':
@@ -580,7 +612,7 @@ class MainWindow(Tk):
         else:
             if DEBUGGING:
                 print_log(f'【问题】instance_id({instance_id})，类型({obj_type})，没grp_id')
-
+    
     def game_state_message_handler(self, event_game_state_message):
         game_objs = event_game_state_message.get('gameObjects')
         if game_objs:
@@ -605,7 +637,7 @@ class MainWindow(Tk):
                     else:
                         self.obj_grp_handler(obj, instance_id)
                     self.instance_id_2_grpid_in_match[instance_id] = grpid  # 给衍生物用，所有物件都存进来
-
+    
     def ui_message_handler(self, ui_message):
         # seat_ids = ui_message.get('seatIds')
         on_hover = ui_message.get('onHover')
@@ -615,7 +647,7 @@ class MainWindow(Tk):
                 self.now_grp_id = object_id
         else:
             self.now_grp_id = 0
-
+    
     def log_data_handler(self, data):
         global global_list
         global global_select
@@ -638,16 +670,16 @@ class MainWindow(Tk):
             elif state_type == 'MatchGameRoomStateType_MatchCompleted':
                 print_log(f'【清空】结束：编号 {match_id} 模式 {match_mode}')
                 self.out_of_match = True
-
+        
         # v0.0.0中判断对局开始
         # match_endpoint_host = match_game_room_state_event.get('matchEndpointHost')
         # if match_endpoint_host:
         #     self.cards_in_match = {}
-
+        
         game_state_message = data.get('gameStateMessage')
         if game_state_message:
             self.game_state_message_handler(game_state_message)
-
+        
         payload = data.get('payload')
         if payload and isinstance(payload, dict):  # 如果不是字典，可能是：空，牌组，赛制，当前活动
             ui_message = payload.get('uiMessage')
@@ -709,11 +741,11 @@ class MainWindow(Tk):
                         # 可能没有systemSeatIds，这时有systemSeatId
                         if system_seat_ids is None or self.monitor_opponent_mode:
                             self.ui_message_handler(ui_message)
-
+                    
                     game_state_message = message.get('gameStateMessage')
                     if game_state_message:
                         self.game_state_message_handler(game_state_message)
-
+                    
                     actions_available_req = message.get('actionsAvailableReq')
                     if actions_available_req:
                         actions = actions_available_req.get('actions')
@@ -727,7 +759,7 @@ class MainWindow(Tk):
         connect_resp = data.get('connectResp')
         if connect_resp:
             self.out_of_match = False
-
+    
     def pack_2_list(self, draft_pack):
         global global_list
         draft_p = [int(card) for card in draft_pack]
@@ -737,7 +769,7 @@ class MainWindow(Tk):
             self.title_id_2_name_map[self.card_grp_id_2_title_id_map[x]]))
         global_list = [(card, self.title_id_2_name_map[self.card_grp_id_2_title_id_map[card]],
                         self.card_grp_id_2_cost_map[card]) for card in draft_sorted]
-
+    
     async def log_handler(self):
         while True:
             await asyncio.sleep(0.005)
@@ -889,9 +921,11 @@ class MainWindow(Tk):
                                                         x1 = x2 - int((y2 - y1) / 1.4) - 1
                                                     if y2 - y1 > 210 and x2 - x1 > 150:
                                                         image_crop = image_new_0_crop.crop((x1, y1, x2, y2))
-                                                        art_crop = image_crop.resize((150, 210), Image.ANTIALIAS).crop((11, 24, 139, 117))
+                                                        art_crop = image_crop.resize((150, 210), Image.ANTIALIAS).crop(
+                                                            (11, 24, 139, 117))
                                                         art_hash = dhash(art_crop, 16)
-                                                        hash_compare = [(item[0], art_hash - item[1]) for item in self.dhash_list]
+                                                        hash_compare = [(item[0], art_hash - item[1]) for item in
+                                                                        self.dhash_list]
                                                         hash_min = min(hash_compare, key=lambda xx: xx[1])
                                                         title_id = hash_min[0]
                                                         if DEBUGGING:
@@ -909,14 +943,16 @@ class MainWindow(Tk):
                                                                 self.update_img(title_id)
                                                         elif hash_min[1] < 90:
                                                             art_hash = average_hash(art_crop, 16)
-                                                            hash_compare = [(item[0], art_hash - item[1]) for item in self.ahash_list]
+                                                            hash_compare = [(item[0], art_hash - item[1]) for item in
+                                                                            self.ahash_list]
                                                             hash_min = min(hash_compare, key=lambda xx: xx[1])
                                                             title_id = hash_min[0]
                                                             if DEBUGGING:
                                                                 image_crop.save('./temp/' + str(self.index) + '.png')
                                                                 art_crop.save('./temp/' + str(self.index) + 'a.png')
                                                                 name = self.title_id_2_name_map.get(title_id)
-                                                                print('[dhash]', self.index, name, title_id, hash_min[1],
+                                                                print('[dhash]', self.index, name, title_id,
+                                                                      hash_min[1],
                                                                       mouse_x, mouse_y, x_rate, y_rate)
                                                             self.index += 1
                                                             if hash_min[1] < 40:
@@ -942,17 +978,18 @@ class MainWindow(Tk):
             except Exception as e:
                 print_log((f'【严重】读MTGA日志出错：{e}', e.args))
 
+
     def alpha_max(self, event):
         self.attributes('-alpha', 1.0)
-
+    
     def alpha_min(self, event):
         self.attributes('-alpha', 0.05)
-
+    
     def get_loop(self, loop):
         self.loop = loop
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
-
+    
     def main_start(self):
         self.topmost_mode = _10_to_TF[self.topmost_mode_v.get()]
         self.alpha_mode = _10_to_TF[self.alpha_mode_v.get()]
