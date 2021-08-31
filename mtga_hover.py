@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.10'
-__date__ = '2021-08-22'
+__version__ = 'v0.1.11'
+__date__ = '2021-08-31'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
@@ -38,6 +38,8 @@ F_T = ((('constructedSeasonOrdinal', 'constructedClass', 'constructedLevel', 'co
          'limitedMatchesLost', 'limitedMatchesDrawn', 'limitedPercentile', 'limitedLeaderboardPlace'), '限制'))
 INVENTORY_ITEMS = ('gems', 'gold', 'sealedTokens', 'draftTokens', 'vaultProgress', 'wcTrackPosition',
                    'wcMythic', 'wcRare', 'wcUncommon', 'wcCommon')  # 'boosters'
+INVENTORY_ITEMS_1 = ('Gems', 'Gold', 'SealedTokens', 'DraftTokens', 'TotalVaultProgress', 'wcTrackPosition',
+                     'WildCardMythics', 'WildCardRares', 'WildCardUnCommons', 'WildCardCommons')  # 'Boosters'
 _10_to_TF = {'1': True, '0': False}
 _TF_to_01 = {True: '1', False: '0'}
 global_list = []
@@ -353,7 +355,7 @@ class MainWindow(Tk):
     
     def load_mtga_files(self):
         if DEBUGGING:
-            mtga_files_dir = r'C:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Data\\'
+            mtga_files_dir = r'D:\Program Files\Wizards of the Coast\MTGA\MTGA_Data\Downloads\Data\\'
         elif os.path.exists('MTGA.exe'):
             mtga_files_dir = os.sep.join(['.', 'MTGA_Data', 'Downloads', 'Data'])  # 不同系统环境的路径可能有区别
         elif os.path.exists('MTGALauncher.exe'):
@@ -679,8 +681,11 @@ class MainWindow(Tk):
         game_state_message = data.get('gameStateMessage')
         if game_state_message:
             self.game_state_message_handler(game_state_message)
-        
         payload = data.get('payload')
+        if not payload:
+            payload = data.get('Payload')
+        if payload and isinstance(payload, str) and payload != 'Success':
+            payload = loads(payload)
         if payload and isinstance(payload, dict):  # 如果不是字典，可能是：空，牌组，赛制，当前活动
             ui_message = payload.get('uiMessage')
             if ui_message:
@@ -688,7 +693,7 @@ class MainWindow(Tk):
                 if system_seat_ids is None or self.monitor_opponent_mode:
                     self.ui_message_handler(ui_message)
             player_id = payload.get('playerId')
-            if player_id:
+            if player_id:  # 废弃
                 try:
                     constructed_season_ordinal = payload.get('constructedSeasonOrdinal')  # 赛季空隙会怎样？
                     if constructed_season_ordinal:
@@ -711,17 +716,41 @@ class MainWindow(Tk):
                     print_log((f'【严重】读玩家收藏信息出错：{e}', e.args))
             draft_status = payload.get('DraftStatus')
             if draft_status:
-                if draft_status == 'Draft.PickNext':
+                if draft_status == 'Draft.PickNext' or draft_status == 'PickNext':
                     draft_pack = payload.get('DraftPack')
                     self.pack_2_list(draft_pack)
-                elif draft_status == 'Draft.Complete':
+                elif draft_status == 'Draft.Complete' or draft_status == 'Completed':
                     global_list = []
                     global_select = 0
-            pick_completed = payload.get('IsPickingCompleted')
+            pick_completed = payload.get('IsPickingCompleted')  # 没了
             if pick_completed:
                 global_list = []
                 global_select = 0
-        pack_cards = data.get('PackCards')
+
+        inventory = data.get('InventoryInfo')
+        if inventory:
+            try:
+                j = [inventory[INVENTORY_ITEMS_1[n]] for n in range(10)]
+                print_log(f'【信息】{j[0]}宝石 {j[1]}金币 {j[2]}现开|{j[3]}轮抽票 {j[4]}‰宝库进度 {j[5]}保底万用开包位 '
+                          f'{j[6]}M|{j[7]}R|{j[8]}U|{j[9]}C万用牌')
+                self.out_of_match = True
+            except Exception as e:
+                print_log((f'【严重】读玩家收藏信息出错：{e}', e.args))
+
+        if data.get('constructedSeasonOrdinal'):
+            try:
+                for i in range(2):
+                    j = [0] * 9
+                    for ii in range(9):
+                        j[ii] = data.get(F_T[i][0][ii], 0)
+                    k = j[4] + j[5] + j[6]
+                    print_log(f'【信息】{F_T[i][1]}赛制 第{j[0]}赛季 {j[1]}-{j[2]}-{j[3]}(#{j[8]}|{j[7]}%) '
+                              f'{j[4]}胜{j[5]}负{j[6]}平 '
+                              f'胜率{0 if k == 0 else round((j[4] + j[6] / 2) / k, 3)}')
+            except Exception as e:
+                print_log((f'【严重】读玩家赛季信息出错：{e}', e.args))
+
+        pack_cards = data.get('PackCards')  # 好像也没了？
         if pack_cards:
             cards = pack_cards.split(',')
             self.pack_2_list(cards)
