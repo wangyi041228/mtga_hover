@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 """Monitor MTGA logs and display Simplified-Chinese images of on-hovered cards in real time."""
 __license__ = 'GPL'
-__version__ = 'v0.1.12'
-__date__ = '2021-09-17'
+__version__ = 'v0.1.13'
+__date__ = '2021-09-18'
 __credits__ = ['https://www.iyingdi.com', 'https://www.scryfall.com', 'https://gatherer.wizards.com']
 __qq_group__ = '780812745'
 __status__ = 'Developing'
